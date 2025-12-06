@@ -13,8 +13,8 @@ class SessionCreate(BaseModel):
 
     @field_validator("end_time")
     @classmethod
-    def validate_time_order(cls, end_time: datetime, values: dict):
-        start_time = values.get("start_time")
+    def validate_time_order(cls, end_time: datetime, info):
+        start_time = info.data.get("start_time")
         if start_time and end_time <= start_time:
             raise ValueError("end_time must be greater than start_time")
         return end_time
