@@ -64,7 +64,7 @@ def list_recent_sessions(
         .order_by(StudySession.start_time.desc())
         .limit(limit)
     )
-    sessions = db.scalars(stmt).all()
+    sessions = db.scalars(stmt).unique().all()
     items = [_build_session_public(s) for s in sessions]
     return SessionListResponse(items=items)
 
