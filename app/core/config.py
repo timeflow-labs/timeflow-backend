@@ -9,6 +9,12 @@ class Settings(BaseSettings):
 
     api_v1_prefix: str = "/api/v1"
     default_user_id: str = "demo-user"
+    default_user_email: str = "demo@example.com"
+    default_user_name: str = "Demo User"
+    default_user_password: str = "demo-password"
+    cors_allow_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:5173"], alias="CORS_ALLOW_ORIGINS"
+    )
 
     app_env: str = Field(default="local", alias="APP_ENV")
     db_host: str = Field(default="127.0.0.1", alias="DB_HOST")
