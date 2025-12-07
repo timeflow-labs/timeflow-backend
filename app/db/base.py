@@ -6,4 +6,4 @@ class Base(DeclarativeBase):
 
 
 # Import models here for Alembic autogeneration and metadata discovery.
-from app.models import report_file, study_session, tag, user  # noqa: E402,F401
+from app.models import study_session, tag, user  # noqa: E402,F401

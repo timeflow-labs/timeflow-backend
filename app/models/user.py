@@ -23,4 +23,3 @@ class User(Base):
 
     sessions = relationship("StudySession", back_populates="user", cascade="all, delete")
     tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")
-    reports = relationship("ReportFile", back_populates="user", cascade="all, delete")
