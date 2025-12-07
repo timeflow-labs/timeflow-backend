@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.core.config import settings
+from app.api.deps import get_db, get_request_user_id
 from app.models.study_session import StudySession
 from app.models.tag import SessionTag, Tag
 from app.models.user import User
@@ -20,13 +19,13 @@ from app.schemas.dashboard import (
 )
 
 router = APIRouter()
-DEFAULT_USER_ID = settings.default_user_id
 
 
 @router.get("/today", response_model=TodaySummaryResponse)
 def get_today_summary(
     target_date: date | None = Query(default=None, alias="date"),
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
 ):
     """Return totals for the provided date (defaults to today)."""
     target = target_date or date.today()
@@ -37,7 +36,7 @@ def get_today_summary(
             func.avg(StudySession.focus_level),
             func.count(StudySession.id),
         )
-        .where(StudySession.user_id == DEFAULT_USER_ID)
+        .where(StudySession.user_id == user_id)
         .where(day_expr == target)
     )
     total_minutes, avg_focus, session_count = db.execute(stmt).one()
@@ -49,7 +48,7 @@ def get_today_summary(
         )
         .join(SessionTag, SessionTag.tag_id == Tag.id)
         .join(StudySession, SessionTag.session_id == StudySession.id)
-        .where(Tag.user_id == DEFAULT_USER_ID)
+        .where(Tag.user_id == user_id)
         .where(day_expr == target)
         .group_by(Tag.name)
         .order_by(func.sum(StudySession.duration_minutes).desc())
@@ -62,7 +61,7 @@ def get_today_summary(
     highlight_stmt = (
         select(StudySession.memo)
         .where(
-            StudySession.user_id == DEFAULT_USER_ID,
+            StudySession.user_id == user_id,
             day_expr == target,
             StudySession.memo.is_not(None),
         )
@@ -85,6 +84,7 @@ def get_today_summary(
 def get_weekly_summary(
     end_date: date | None = Query(default=None),
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
 ):
     """Return rolling 7-day study metrics ending with provided date."""
     end = end_date or date.today()
@@ -98,7 +98,7 @@ def get_weekly_summary(
             func.count(StudySession.id),
         )
         .where(
-            StudySession.user_id == DEFAULT_USER_ID,
+            StudySession.user_id == user_id,
             day_expr >= start,
             day_expr <= end,
         )
@@ -140,6 +140,7 @@ def get_heatmap(
     start_date: date = Query(...),
     end_date: date = Query(...),
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
 ):
     """Return date-level totals for a given period."""
     if end_date < start_date:
@@ -152,7 +153,7 @@ def get_heatmap(
             func.coalesce(func.sum(StudySession.duration_minutes), 0),
         )
         .where(
-            StudySession.user_id == DEFAULT_USER_ID,
+            StudySession.user_id == user_id,
             day_expr >= start_date,
             day_expr <= end_date,
         )
@@ -173,9 +174,12 @@ def get_heatmap(
 
 
 @router.get("/streak", response_model=StreakResponse)
-def get_streak(db: Session = Depends(get_db)):
+def get_streak(
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
+):
     """Return streak info from user record."""
-    user = db.get(User, DEFAULT_USER_ID)
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return StreakResponse(

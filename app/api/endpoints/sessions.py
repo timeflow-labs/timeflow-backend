@@ -4,8 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db
-from app.core.config import settings
+from app.api.deps import get_db, get_request_user_id
 from app.models.study_session import StudySession
 from app.models.tag import Tag
 from app.models.user import User
@@ -18,13 +17,16 @@ from app.schemas.session import (
 )
 
 router = APIRouter()
-DEFAULT_USER_ID = settings.default_user_id
 
 
 @router.post("", response_model=SessionDetail, status_code=201)
-def create_session(payload: SessionCreate, db: Session = Depends(get_db)):
+def create_session(
+    payload: SessionCreate,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
+):
     """Create a study session entry with tag handling and streak updates."""
-    user = db.get(User, DEFAULT_USER_ID)
+    user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
@@ -35,14 +37,14 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="duration_minutes must be positive")
 
     session = StudySession(
-        user_id=DEFAULT_USER_ID,
+        user_id=user_id,
         start_time=payload.start_time,
         end_time=payload.end_time,
         duration_minutes=duration_minutes,
         focus_level=payload.focus_level,
         memo=payload.memo,
     )
-    session.tags = _get_or_create_tags(db, DEFAULT_USER_ID, payload.tags)
+    session.tags = _get_or_create_tags(db, user_id, payload.tags)
 
     db.add(session)
     db.flush()
@@ -56,11 +58,12 @@ def create_session(payload: SessionCreate, db: Session = Depends(get_db)):
 def list_recent_sessions(
     limit: int = Query(default=10, ge=1, le=50),
     db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
 ):
     """Return most recent study sessions."""
     stmt = (
         select(StudySession)
-        .where(StudySession.user_id == DEFAULT_USER_ID)
+        .where(StudySession.user_id == user_id)
         .order_by(StudySession.start_time.desc())
         .limit(limit)
     )
@@ -70,18 +73,25 @@ def list_recent_sessions(
 
 
 @router.get("/{session_id}", response_model=SessionDetail)
-def get_session(session_id: int, db: Session = Depends(get_db)):
+def get_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
+):
     """Return a single study session."""
-    session = _get_session_or_404(db, session_id)
+    session = _get_session_or_404(db, session_id, user_id)
     return _build_session_detail(session)
 
 
 @router.put("/{session_id}", response_model=SessionDetail)
 def update_session(
-    session_id: int, payload: SessionUpdate, db: Session = Depends(get_db)
+    session_id: int,
+    payload: SessionUpdate,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
 ):
     """Update every field of the given study session."""
-    session = _get_session_or_404(db, session_id)
+    session = _get_session_or_404(db, session_id, user_id)
 
     duration_minutes = int(
         (payload.end_time - payload.start_time).total_seconds() // 60
@@ -94,7 +104,7 @@ def update_session(
     session.duration_minutes = duration_minutes
     session.focus_level = payload.focus_level
     session.memo = payload.memo
-    session.tags = _get_or_create_tags(db, DEFAULT_USER_ID, payload.tags)
+    session.tags = _get_or_create_tags(db, user_id, payload.tags)
 
     db.flush()
     _refresh_user_streaks(db, session.user)
@@ -104,9 +114,13 @@ def update_session(
 
 
 @router.delete("/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: int, db: Session = Depends(get_db)):
+def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(get_request_user_id),
+):
     """Remove a study session and recalculate streak metadata."""
-    session = _get_session_or_404(db, session_id)
+    session = _get_session_or_404(db, session_id, user_id)
     user = session.user
     db.delete(session)
     db.flush()
@@ -136,10 +150,10 @@ def _get_or_create_tags(db: Session, user_id: int, names: list[str]) -> list[Tag
     return list(existing_map.values())
 
 
-def _get_session_or_404(db: Session, session_id: int) -> StudySession:
+def _get_session_or_404(db: Session, session_id: int, user_id: str) -> StudySession:
     """Fetch a session for the default user or raise 404."""
     session = db.get(StudySession, session_id)
-    if not session or session.user_id != DEFAULT_USER_ID:
+    if not session or session.user_id != user_id:
         raise HTTPException(status_code=404, detail="Session not found")
     return session
 
